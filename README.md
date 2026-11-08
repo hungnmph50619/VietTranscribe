@@ -12,6 +12,26 @@
 - Hiển thị tiến độ theo số đoạn, tốc độ và thời gian còn lại *ước tính*. Trong lúc chạy một đoạn 10 phút, % có thể đứng yên đến khi đoạn hoàn thành.
 - Mỗi file và cấu hình tạo một thư mục kết quả riêng, tránh ghi đè khi trùng tên.
 
+## Chọn mô hình và chế độ tốc độ
+
+Các mô hình được xếp theo **xu hướng** tốc độ chạy CPU, không phải số đo được bảo đảm cho mọi máy:
+
+| Mô hình | Xếp hạng tốc độ | Ưu điểm | Hạn chế |
+| --- | --- | --- | --- |
+| `tiny` | Nhanh nhất | Nhẹ, chạy trên máy yếu | Dễ sai / bỏ sót tiếng Việt |
+| `base` | Rất nhanh | Thích hợp ghi âm rõ tiếng | Nhận dạng thuật ngữ kém hơn mô hình lớn |
+| `small` | Trung bình — khuyên dùng | Cân bằng độ chính xác và tốc độ | Chậm hơn base |
+| `medium` | Chậm | Thường chính xác hơn ở âm thanh khó | Tốn CPU và RAM |
+| `large-v3` | Chậm nhất | Năng lực nhận dạng lớn | Rất nặng nếu chỉ có CPU |
+
+Chế độ phiên âm sử dụng thuật toán beam search:
+
+- **Nhanh**: `beam_size=1`, ưu tiên tốc độ, có thể giảm độ chính xác.
+- **Cân bằng**: `beam_size=3`, là lựa chọn mặc định.
+- **Chính xác hơn**: `beam_size=5`, có thể chậm hơn, không bảo đảm mọi file đều chính xác hơn.
+
+Cấu hình mặc định: `small + Cân bằng`. Chế độ và tên mô hình được giữ lại khi mở lại ứng dụng. **Thay đổi mô hình hoặc chế độ tạo checkpoint riêng**, không sử dụng lại kết quả của cấu hình khác. Chế độ nhanh có thể giúp tiết kiệm thời gian CPU, nhưng không bảo đảm tốc độ tăng theo tỉ lệ beam size.
+
 ## Cập nhật Windows từ repository
 
 **Để bản ghi đang chạy hoàn thành và đóng VietTranscribe trước khi cập nhật.** Mở PowerShell:
@@ -35,7 +55,7 @@ Máy mới cần Python 3.11, có thể được script cài qua winget. Nếu v
 
 1. Nhấn **Thêm file...** và chọn một hoặc nhiều file ghi âm.
 2. Chọn **Thư mục xuất kết quả**.
-3. Mô hình `small`, ngôn ngữ `vi`, VAD bật là lựa chọn mặc định.
+3. Mô hình `small`, chế độ `Cân bằng`, ngôn ngữ `vi`, VAD bật là lựa chọn mặc định. Có thể chọn `base + Nhanh` nếu ưu tiên xử lý nhanh.
 4. Nhấn **BẮT ĐẦU / TIẾP TỤC**. Sau khi mở lại phần mềm, danh sách file trước đó được khôi phục; nhấn nút này để tiếp tục các checkpoint đã hoàn thành.
 5. Có thể nhấn **DỪNG SAU ĐOẠN HIỆN TẠI**; dữ liệu các đoạn hoàn thành vẫn được giữ.
 6. Sau khi hoàn thành, mở thư mục `<tên file>__<mã>/van_ban_day_du.txt` để lấy kết quả. Nếu chưa xong, dùng `van_ban_dang_xu_ly.partial.txt` để đọc phần đã có.
