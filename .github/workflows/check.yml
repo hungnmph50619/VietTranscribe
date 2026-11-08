@@ -12,6 +12,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Check syntax
-        run: python -m py_compile app.py
-      - name: Test progress calculations
+        run: python -m py_compile app.py transcription.py
+      - name: Test checkpoints and resume
         run: python -m unittest discover -s tests -v
