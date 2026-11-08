@@ -379,6 +379,9 @@ class VietTranscribe(ctk.CTk):
             self.log("Không đọc được file kéo thả: " + str(exc))
 
     def append_files(self, paths):
+        if self.busy:
+            self.log("Đang phiên âm, không thể thêm file vào hàng đợi lúc này.")
+            return
         allowed = {".m4a", ".mp3", ".wav", ".flac", ".mp4",
                    ".ogg", ".aac", ".wma", ".mkv"}
         existing = {str(p).casefold() for p in self.sources}
