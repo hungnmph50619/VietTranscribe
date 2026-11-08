@@ -187,30 +187,60 @@ def transcribe_file(source: Path, root: Path, engine, model: str,
     estimate = duration_chunks(source)
     begin = time.monotonic()
     fresh, completed = 0, 0
+    processed_new_seconds = 0.0
     for index, start, samples in iter_chunks(source):
         if cancel.is_set():
             combine(folder, manifest, max(index+1, estimate), False)
             return None
         previous = read_part(folder, manifest, index)
         if previous is None:
-            emit({"type": "log", "message": f"Đang phiên âm đoạn {index+1}..."})
+            emit({"type": "log", "message": f"Đang phiên âm đoạn {index+1}/{estimate or '?'}..."})
+            emit({"type": "stage", "message": f"Đang nhận dạng đoạn {index+1}/{estimate or '?'}"})
+            chunk_audio_seconds = len(samples) / RATE
+            overlap = OVERLAP_SECONDS if index else 0
+            chunk_new_seconds = max(0.0, chunk_audio_seconds - overlap)
+            last_audio_seconds = 0.0
+
+            def tracked_segments(segments):
+                nonlocal last_audio_seconds
+                for segment in segments:
+                    # Whisper yields speech segments progressively. This is genuine
+                    # decoded audio progress, not a timer-based percentage.
+                    current = min(chunk_new_seconds, max(
+                        last_audio_seconds, float(segment.end) - overlap))
+                    if current > last_audio_seconds:
+                        last_audio_seconds = current
+                        elapsed = max(0.001, time.monotonic() - begin)
+                        audio_done = min(start + current,
+                                         max((index + 1) * CHUNK_SECONDS, estimate * CHUNK_SECONDS))
+                        total = max((index + 1) * CHUNK_SECONDS, estimate * CHUNK_SECONDS)
+                        speed = (processed_new_seconds + current) / elapsed
+                        remaining = max(0.0, total - audio_done)
+                        emit({"type": "progress",
+                              "percent": min(99.0, audio_done / total * 100),
+                              "speed": speed,
+                              "eta": remaining / speed if speed > 0 else None})
+                    yield segment
+
             try:
                 segments, _ = engine.transcribe(
                     samples, language=None if language == "auto" else language,
                     beam_size=beam_size_for(mode), vad_filter=vad)
-                content = render_segments(segments, start, index)
+                content = render_segments(tracked_segments(segments), start, index)
             except Exception:
                 combine(folder, manifest, max(index+1, estimate), False)
                 raise
-            # Keep an already-finished chunk even if Stop was pressed mid-inference.
+            # Persist only completed chunks. Partial inference never overwrites them.
             save_part(folder, manifest, index, content)
             fresh += 1
+            processed_new_seconds += chunk_new_seconds
         else:
             emit({"type": "log", "message": f"Đã có checkpoint đoạn {index+1}, bỏ qua."})
+        emit({"type": "stage", "message": f"Đã lưu xong đoạn {index+1}/{estimate or '?'}"})
         completed = index + 1
         combine(folder, manifest, max(completed, estimate), False)
         elapsed = max(.001, time.monotonic() - begin)
-        speed = fresh * CHUNK_SECONDS / elapsed
+        speed = processed_new_seconds / elapsed
         total_seconds = max(completed, estimate) * CHUNK_SECONDS
         processed_seconds = completed * CHUNK_SECONDS
         emit({"type": "progress", "percent": min(99, processed_seconds / total_seconds * 100),
