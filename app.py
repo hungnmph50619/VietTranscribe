@@ -12,6 +12,22 @@ from tkinter import filedialog, messagebox, ttk
 from transcription import atomic_write, transcribe_file
 
 MODELS = ("tiny", "base", "small", "medium", "large-v3")
+MODEL_DESCRIPTIONS = {
+    "tiny": ("Nhanh nhất", "Nhẹ nhất; độ chính xác thấp hơn, dễ bỏ sót từ."),
+    "base": ("Rất nhanh", "Phù hợp ghi âm rõ tiếng; có thể nhầm thuật ngữ."),
+    "small": ("Cân bằng — khuyên dùng", "Cân bằng chất lượng tiếng Việt và tốc độ CPU."),
+    "medium": ("Chậm", "Thường nhận dạng tốt hơn, nhưng dùng nhiều RAM và CPU."),
+    "large-v3": ("Chậm nhất", "Mô hình lớn nhất trong danh sách; rất nặng với CPU."),
+}
+MODEL_LABELS = {key: f"{key} — {value[0]}" for key, value in MODEL_DESCRIPTIONS.items()}
+LABEL_TO_MODEL = {label: key for key, label in MODEL_LABELS.items()}
+MODE_LABELS = {
+    "fast": "Nhanh — beam 1",
+    "balanced": "Cân bằng — beam 3",
+    "accurate": "Chính xác hơn — beam 5",
+}
+LABEL_TO_MODE = {label: key for key, label in MODE_LABELS.items()}
+
 
 
 def clock(seconds):
@@ -27,12 +43,16 @@ class VietTranscribe(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("VietTranscribe | Phiên âm file dài")
-        self.geometry("820x630")
-        self.minsize(670, 510)
+        self.geometry("850x700")
+        self.minsize(700, 575)
         self.sources = []
         self.queue_path = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "VietTranscribe" / "queue.json"
         self.destination = tk.StringVar(value=str(Path.home() / "Desktop" / "KetQuaPhienAm"))
         self.model = tk.StringVar(value="small")
+        self.model_label = tk.StringVar(value=MODEL_LABELS["small"])
+        self.model_info = tk.StringVar(value=MODEL_DESCRIPTIONS["small"][1])
+        self.speed_mode = tk.StringVar(value="balanced")
+        self.speed_label = tk.StringVar(value=MODE_LABELS["balanced"])
         self.language = tk.StringVar(value="vi")
         self.vad = tk.BooleanVar(value=True)
         self.status = tk.StringVar(value="Sẵn sàng")
@@ -77,15 +97,29 @@ class VietTranscribe(tk.Tk):
         row = ttk.Frame(root)
         row.pack(fill="x")
         ttk.Label(row, text="Mô hình AI").pack(side="left")
-        self.model_box = ttk.Combobox(row, textvariable=self.model, values=MODELS, state="readonly", width=12)
-        self.model_box.pack(side="left", padx=(7, 20))
+        self.model_box = ttk.Combobox(row, textvariable=self.model_label,
+                                      values=tuple(MODEL_LABELS.values()),
+                                      state="readonly", width=31)
+        self.model_box.pack(side="left", padx=(7, 15))
+        self.model_box.bind("<<ComboboxSelected>>", self.change_model)
         ttk.Label(row, text="Ngôn ngữ").pack(side="left")
         self.lang_box = ttk.Combobox(row, textvariable=self.language, values=("vi", "auto", "en"),
                                      state="readonly", width=9)
-        self.lang_box.pack(side="left", padx=(7, 20))
+        self.lang_box.pack(side="left", padx=(7, 10))
         self.vad_box = ttk.Checkbutton(row, text="Lọc im lặng (VAD)", variable=self.vad)
         self.vad_box.pack(side="left")
-        ttk.Label(root, text="Chia đoạn: 10 phút · Xử lý trên CPU · Có lưu checkpoint").pack(anchor="w", pady=(8, 12))
+        ttk.Label(root, textvariable=self.model_info, foreground="#345b78").pack(anchor="w", pady=(6, 2))
+        row = ttk.Frame(root)
+        row.pack(fill="x", pady=(5, 2))
+        ttk.Label(row, text="Chế độ xử lý").pack(side="left")
+        self.speed_box = ttk.Combobox(row, textvariable=self.speed_label,
+                                      values=tuple(MODE_LABELS.values()),
+                                      state="readonly", width=27)
+        self.speed_box.pack(side="left", padx=(8, 12))
+        self.speed_box.bind("<<ComboboxSelected>>", self.change_mode)
+        ttk.Label(row, text="Nhanh hơn có thể giảm độ chính xác.").pack(side="left")
+        ttk.Label(root, text="Thứ tự thông thường: tiny > base > small > medium > large-v3 (CPU).").pack(anchor="w")
+        ttk.Label(root, text="Chia đoạn: 10 phút · Xử lý trên CPU · Có lưu checkpoint").pack(anchor="w", pady=(5, 12))
 
         row = ttk.Frame(root)
         row.pack(fill="x")
@@ -104,10 +138,21 @@ class VietTranscribe(tk.Tk):
         self.log_box.pack(fill="both", expand=True, pady=(5, 7))
         ttk.Label(root, text="Đoạn hoàn thành được lưu ngay; TXT đầy đủ được ghép tự động.").pack(anchor="w")
 
+    def change_model(self, _event=None):
+        key = LABEL_TO_MODEL.get(self.model_label.get(), "small")
+        self.model.set(key)
+        self.model_info.set(MODEL_DESCRIPTIONS[key][1])
+        self.save_queue()
+
+    def change_mode(self, _event=None):
+        self.speed_mode.set(LABEL_TO_MODE.get(self.speed_label.get(), "balanced"))
+        self.save_queue()
+
     def save_queue(self):
         state = {"files": [str(f) for f in self.sources],
                  "destination": self.destination.get(),
-                 "model": self.model.get(), "language": self.language.get(),
+                 "model": self.model.get(), "mode": self.speed_mode.get(),
+                 "language": self.language.get(),
                  "vad": self.vad.get()}
         try:
             atomic_write(self.queue_path, json.dumps(state, ensure_ascii=False))
@@ -125,7 +170,14 @@ class VietTranscribe(tk.Tk):
             if data.get("destination"):
                 self.destination.set(data["destination"])
             if data.get("model") in MODELS:
-                self.model.set(data["model"])
+                key = data["model"]
+                self.model.set(key)
+                self.model_label.set(MODEL_LABELS[key])
+                self.model_info.set(MODEL_DESCRIPTIONS[key][1])
+            if data.get("mode") in MODE_LABELS:
+                mode = data["mode"]
+                self.speed_mode.set(mode)
+                self.speed_label.set(MODE_LABELS[mode])
             if data.get("language") in ("vi", "auto", "en"):
                 self.language.set(data["language"])
             self.vad.set(bool(data.get("vad", True)))
@@ -182,6 +234,7 @@ class VietTranscribe(tk.Tk):
             control.config(state="disabled" if busy else "normal")
         self.model_box.config(state="disabled" if busy else "readonly")
         self.lang_box.config(state="disabled" if busy else "readonly")
+        self.speed_box.config(state="disabled" if busy else "readonly")
         self.stop_button.config(state="normal" if busy else "disabled")
 
     def start(self):
@@ -204,16 +257,17 @@ class VietTranscribe(tk.Tk):
         self.status.set("Đang chuẩn bị mô hình AI...")
         threading.Thread(target=self.worker, daemon=True,
             args=(list(self.sources), Path(self.destination.get().strip()), self.model.get(),
-                  self.language.get(), self.vad.get())).start()
+                  self.language.get(), self.vad.get(), self.speed_mode.get())).start()
 
     def stop(self):
         self.cancel_event.set()
         self.stop_button.config(state="disabled")
         self.status.set("Đang chờ đoạn hiện tại hoàn thành để dừng...")
 
-    def worker(self, files, destination, model, language, vad):
+    def worker(self, files, destination, model, language, vad, mode):
         try:
             from faster_whisper import WhisperModel
+            self.events.put({"type": "log", "message": f"Cấu hình: {model} · {MODE_LABELS[mode]}"})
             self.events.put({"type": "log", "message": "Đang tải mô hình AI..."})
             engine = WhisperModel(model, device="cpu", compute_type="int8")
             failures = 0
@@ -225,7 +279,7 @@ class VietTranscribe(tk.Tk):
                 self.events.put({"type": "log", "message": f"[{i}/{len(files)}] {file.name}"})
                 try:
                     result = transcribe_file(file, destination, engine, model, language, vad,
-                                             self.cancel_event, self.events.put)
+                                             self.cancel_event, self.events.put, mode=mode)
                     if result is not None:
                         self.events.put({"type": "log", "message": "Đã lưu: " + str(result)})
                 except Exception as exc:
