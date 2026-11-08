@@ -94,6 +94,39 @@ class CheckpointTests(unittest.TestCase):
                  SimpleNamespace(start=3, end=4, text="Mới")]
         self.assertEqual(t.render_segments(items, 600, 1), "Mới\n")
 
+    def test_speed_modes_and_model_labels(self):
+        from app import MODEL_DESCRIPTIONS, MODEL_LABELS, MODE_LABELS, LABEL_TO_MODE
+        self.assertEqual(tuple(MODEL_DESCRIPTIONS), ("tiny", "base", "small", "medium", "large-v3"))
+        self.assertIn("Nhanh nhất", MODEL_LABELS["tiny"])
+        self.assertIn("Chậm nhất", MODEL_LABELS["large-v3"])
+        self.assertIn("khuyên dùng", MODEL_LABELS["small"])
+        self.assertEqual(LABEL_TO_MODE[MODE_LABELS["balanced"]], "balanced")
+        self.assertEqual({mode: t.beam_size_for(mode)
+                          for mode in ("fast", "balanced", "accurate")},
+                         {"fast": 1, "balanced": 3, "accurate": 5})
+
+    def test_checkpoint_separation_by_mode(self):
+        paths = {}
+        for mode in ("fast", "balanced", "accurate"):
+            settings = t.fingerprint(self.source, "small", "vi", True, mode)
+            paths[mode] = t.job_directory(self.source, self.results, settings)
+        self.assertEqual(len(set(paths.values())), 3)
+        self.assertNotEqual(paths["fast"], paths["balanced"])
+
+    def test_beam_size_passed_to_engine(self):
+        seen = []
+        class CaptureModel:
+            def transcribe(self, audio, **kwargs):
+                seen.append(kwargs["beam_size"])
+                return iter([SimpleNamespace(start=3.0, end=4.0, text="An toàn")]), None
+        for mode in ("fast", "balanced", "accurate"):
+            with patch.object(t, "iter_chunks", return_value=iter(self.fake[:1])), \
+                 patch.object(t, "duration_chunks", return_value=1):
+                t.transcribe_file(self.source, self.results, CaptureModel(),
+                                  "small", "vi", True, threading.Event(),
+                                  lambda event: None, mode=mode)
+        self.assertEqual(seen, [1, 3, 5])
+
     def test_unicode_atomic_write_and_clock(self):
         path = self.root / "a.txt"
         t.atomic_write(path, "Lái xe an toàn")
