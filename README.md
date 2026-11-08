@@ -4,7 +4,7 @@
 
 ## Tính năng
 
-- Chọn **nhiều file**; chạy tuần tự trong hàng đợi, dùng chung một mô hình AI.
+- Chọn **nhiều file**; chạy tuần tự trong hàng đợi, dùng chung một mô hình AI. Danh sách file được giữ lại trên máy khi đóng và mở lại phần mềm; file lỗi không chặn toàn bộ hàng đợi.
 - Giải mã âm thanh theo luồng, chia mỗi file thành các đoạn **10 phút** với khoảng chồng lấn 2 giây ở đầu đoạn sau để giảm rủi ro mất lời tại điểm cắt.
 - Sau **mỗi đoạn hoàn tất**, ghi `parts/00000.txt`, `parts/00001.txt`, ... và `manifest.json` bằng thao tác thay thế file an toàn. Tạo `van_ban_dang_xu_ly.partial.txt` liên tục.
 - Nếu dừng, mất điện hoặc máy thoát bất ngờ, bấm **BẮT ĐẦU / TIẾP TỤC** để chương trình **bỏ qua các đoạn đã lưu hợp lệ** và phiên âm phần còn lại. Đoạn đang xử lý dở có thể phải làm lại.
@@ -36,7 +36,7 @@ Máy mới cần Python 3.11, có thể được script cài qua winget. Nếu v
 1. Nhấn **Thêm file...** và chọn một hoặc nhiều file ghi âm.
 2. Chọn **Thư mục xuất kết quả**.
 3. Mô hình `small`, ngôn ngữ `vi`, VAD bật là lựa chọn mặc định.
-4. Nhấn **BẮT ĐẦU / TIẾP TỤC**.
+4. Nhấn **BẮT ĐẦU / TIẾP TỤC**. Sau khi mở lại phần mềm, danh sách file trước đó được khôi phục; nhấn nút này để tiếp tục các checkpoint đã hoàn thành.
 5. Có thể nhấn **DỪNG SAU ĐOẠN HIỆN TẠI**; dữ liệu các đoạn hoàn thành vẫn được giữ.
 6. Sau khi hoàn thành, mở thư mục `<tên file>__<mã>/van_ban_day_du.txt` để lấy kết quả. Nếu chưa xong, dùng `van_ban_dang_xu_ly.partial.txt` để đọc phần đã có.
 
