@@ -2,6 +2,27 @@
 
 Ứng dụng chạy trên CPU với **faster-whisper**, không cần API key hoặc phí phiên âm. Hỗ trợ M4A, MP3, WAV, MP4, FLAC và các định dạng mà PyAV đọc được.
 
+## Giao diện mới (CustomTkinter)
+
+- Bố cục sáng, gọn, kiểu Windows 11: danh sách file, thiết lập mô hình, tiến độ và nút hành động.
+- **Chọn nhiều file** bằng nút `+ Thêm file`, hoặc thử **kéo thả file** vào cửa sổ (tự tắt khi TkDND không khả dụng).
+- Từng file có trạng thái **Chờ xử lý / Đang xử lý / Hoàn thành / Lỗi / Tạm dừng**.
+- Chọn một file rồi bấm **Mở TXT** để xem văn bản đã hoàn thành bằng chương trình mặc định.
+- **Chi tiết xử lý** mặc định được thu gọn, chỉ mở khi cần xem nhật ký.
+- Giữ nguyên các cơ chế xử lý CPU, chia đoạn 10 phút, tự lưu và tiếp tục checkpoint.
+- Cần cài thư viện giao diện mới **một lần** khi nâng cấp từ bản Tkinter cũ.
+
+**Cập nhật sau khi đóng VietTranscribe:**
+
+```powershell
+cd "$env:USERPROFILE\Downloads\VietTranscribe"
+git pull origin main
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+Từ các lần cập nhật giao diện sau, nếu `requirements.txt` không đổi thì không cần chạy lại `install.ps1`.
+
 ## Tính năng
 
 - Chọn **nhiều file**; chạy tuần tự trong hàng đợi, dùng chung một mô hình AI. Danh sách file được giữ lại trên máy khi đóng và mở lại phần mềm; file lỗi không chặn toàn bộ hàng đợi.
