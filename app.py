@@ -1,6 +1,7 @@
 """VietTranscribe - Windows GUI for resumable, queued audio transcription."""
 from __future__ import annotations
 
+import json
 import os
 import queue
 import threading
@@ -8,7 +9,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from transcription import transcribe_file
+from transcription import atomic_write, transcribe_file
 
 MODELS = ("tiny", "base", "small", "medium", "large-v3")
 
@@ -29,6 +30,7 @@ class VietTranscribe(tk.Tk):
         self.geometry("820x630")
         self.minsize(670, 510)
         self.sources = []
+        self.queue_path = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "VietTranscribe" / "queue.json"
         self.destination = tk.StringVar(value=str(Path.home() / "Desktop" / "KetQuaPhienAm"))
         self.model = tk.StringVar(value="small")
         self.language = tk.StringVar(value="vi")
@@ -39,6 +41,7 @@ class VietTranscribe(tk.Tk):
         self.cancel_event = threading.Event()
         self.busy = False
         self.build_ui()
+        self.restore_queue()
         self.protocol("WM_DELETE_WINDOW", self.close_window)
         self.after(150, self.poll)
 
@@ -101,6 +104,34 @@ class VietTranscribe(tk.Tk):
         self.log_box.pack(fill="both", expand=True, pady=(5, 7))
         ttk.Label(root, text="Đoạn hoàn thành được lưu ngay; TXT đầy đủ được ghép tự động.").pack(anchor="w")
 
+    def save_queue(self):
+        state = {"files": [str(f) for f in self.sources],
+                 "destination": self.destination.get(),
+                 "model": self.model.get(), "language": self.language.get(),
+                 "vad": self.vad.get()}
+        try:
+            atomic_write(self.queue_path, json.dumps(state, ensure_ascii=False))
+        except OSError as exc:
+            self.log("Không lưu được hàng đợi: " + str(exc))
+
+    def restore_queue(self):
+        try:
+            data = json.loads(self.queue_path.read_text(encoding="utf-8-sig"))
+            for value in data.get("files", []):
+                path = Path(value)
+                if path.is_file() and path not in self.sources:
+                    self.sources.append(path)
+                    self.file_list.insert("end", f"{path.name} — {path.parent}")
+            if data.get("destination"):
+                self.destination.set(data["destination"])
+            if data.get("model") in MODELS:
+                self.model.set(data["model"])
+            if data.get("language") in ("vi", "auto", "en"):
+                self.language.set(data["language"])
+            self.vad.set(bool(data.get("vad", True)))
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+
     def add_files(self):
         selected = filedialog.askopenfilenames(title="Chọn nhiều file",
             filetypes=[("Audio / Video", "*.m4a *.mp3 *.wav *.flac *.mp4 *.ogg *.aac *.wma *.mkv"),
@@ -112,20 +143,24 @@ class VietTranscribe(tk.Tk):
                 self.sources.append(path)
                 self.file_list.insert("end", f"{path.name} — {path.parent}")
                 existing.add(str(path).casefold())
+        self.save_queue()
 
     def remove_files(self):
         for index in reversed(self.file_list.curselection()):
             del self.sources[index]
             self.file_list.delete(index)
+        self.save_queue()
 
     def clear_files(self):
         self.sources.clear()
         self.file_list.delete(0, "end")
+        self.save_queue()
 
     def choose_folder(self):
         path = filedialog.askdirectory()
         if path:
             self.destination.set(path)
+            self.save_queue()
 
     def open_folder(self):
         try:
@@ -161,6 +196,7 @@ class VietTranscribe(tk.Tk):
         if not self.destination.get().strip():
             messagebox.showwarning("Thiếu thư mục", "Hãy chọn thư mục xuất kết quả.")
             return
+        self.save_queue()
         self.cancel_event.clear()
         self.set_busy(True)
         self.progress["value"] = 0
@@ -186,10 +222,15 @@ class VietTranscribe(tk.Tk):
                 self.events.put({"type": "status", "message": f"File {i}/{len(files)}: {file.name}"})
                 self.events.put({"type": "progress", "percent": 0, "speed": 0, "eta": None})
                 self.events.put({"type": "log", "message": f"[{i}/{len(files)}] {file.name}"})
-                result = transcribe_file(file, destination, engine, model, language, vad,
-                                         self.cancel_event, self.events.put)
-                if result is not None:
-                    self.events.put({"type": "log", "message": "Đã lưu: " + str(result)})
+                try:
+                    result = transcribe_file(file, destination, engine, model, language, vad,
+                                             self.cancel_event, self.events.put)
+                    if result is not None:
+                        self.events.put({"type": "log", "message": "Đã lưu: " + str(result)})
+                except Exception as exc:
+                    self.events.put({"type": "log", "message": f"LỖI {file.name}: {exc}"})
+                    # A bad file must not stop the rest of the queue.
+                    continue
             self.events.put({"type": "stopped" if self.cancel_event.is_set() else "done"})
         except Exception as error:
             self.events.put({"type": "error", "message": f"{type(error).__name__}: {error}"})
@@ -228,6 +269,7 @@ class VietTranscribe(tk.Tk):
         ):
             return
         self.cancel_event.set()
+        self.save_queue()
         self.destroy()
 
 
