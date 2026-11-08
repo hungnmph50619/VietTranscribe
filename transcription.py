@@ -11,6 +11,14 @@ from pathlib import Path
 RATE = 16000
 CHUNK_SECONDS = 600
 OVERLAP_SECONDS = 2
+SPEED_MODES = {"fast": 1, "balanced": 3, "accurate": 5}
+
+
+def beam_size_for(mode: str) -> int:
+    if mode not in SPEED_MODES:
+        raise ValueError("Chế độ phiên âm không hợp lệ: " + str(mode))
+    return SPEED_MODES[mode]
+
 
 
 def atomic_write(path: Path, content: str):
@@ -27,11 +35,14 @@ def atomic_write(path: Path, content: str):
             tmp.unlink()
 
 
-def fingerprint(path: Path, model: str, language: str, vad: bool) -> dict:
+def fingerprint(path: Path, model: str, language: str, vad: bool,
+                mode: str = "balanced") -> dict:
+    beam_size_for(mode)
     stat = path.stat()
-    return {"version": 2, "source": str(path.resolve()),
+    return {"version": 3, "source": str(path.resolve()),
             "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
             "model": model, "language": language, "vad": vad,
+            "mode": mode, "beam_size": beam_size_for(mode),
             "chunk_seconds": CHUNK_SECONDS, "overlap_seconds": OVERLAP_SECONDS}
 
 
@@ -162,9 +173,10 @@ def render_segments(segments, nominal_start: float, index: int) -> str:
 
 
 def transcribe_file(source: Path, root: Path, engine, model: str,
-                    language: str, vad: bool, cancel, emit) -> Path | None:
+                    language: str, vad: bool, cancel, emit,
+                    mode: str = "balanced") -> Path | None:
     """Resume verified parts; None means stopped. All file writes are atomic."""
-    settings = fingerprint(source, model, language, vad)
+    settings = fingerprint(source, model, language, vad, mode)
     folder = job_directory(source, root, settings)
     manifest = read_manifest(folder, settings)
     final = folder / "van_ban_day_du.txt"
@@ -185,7 +197,7 @@ def transcribe_file(source: Path, root: Path, engine, model: str,
             try:
                 segments, _ = engine.transcribe(
                     samples, language=None if language == "auto" else language,
-                    beam_size=5, vad_filter=vad)
+                    beam_size=beam_size_for(mode), vad_filter=vad)
                 content = render_segments(segments, start, index)
             except Exception:
                 combine(folder, manifest, max(index+1, estimate), False)
