@@ -11,6 +11,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install GUI dependencies for tests
+        run: python -m pip install "customtkinter>=5.2.2,<6" "tkinterdnd2>=0.4.2,<1"
       - name: Check syntax
         run: python -m py_compile app.py transcription.py
       - name: Test checkpoints and resume
