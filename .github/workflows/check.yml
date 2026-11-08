@@ -1,0 +1,17 @@
+name: Check Python
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check syntax
+        run: python -m py_compile app.py
+      - name: Test progress calculations
+        run: python -m unittest discover -s tests -v
