@@ -1,276 +1,234 @@
-"""VietTranscribe: lightweight Vietnamese offline speech-to-text Windows GUI."""
+"""VietTranscribe - Windows GUI for resumable, queued audio transcription."""
 from __future__ import annotations
 
 import os
 import queue
 import threading
-import time
 from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
+
+from transcription import transcribe_file
 
 MODELS = ("tiny", "base", "small", "medium", "large-v3")
 
 
-def timestamp(seconds: float) -> str:
-    millis = max(0, round(seconds * 1000))
-    hh, millis = divmod(millis, 3_600_000)
-    mm, millis = divmod(millis, 60_000)
-    ss, millis = divmod(millis, 1000)
-    return f"{hh:02}:{mm:02}:{ss:02}.{millis:03}"
-
-
-def human_time(seconds: float) -> str:
-    if seconds < 0 or seconds == float("inf"):
+def clock(seconds):
+    if seconds is None:
         return "--:--"
-    seconds = int(seconds + .5)
-    hours, remaining = divmod(seconds, 3600)
-    minutes, secs = divmod(remaining, 60)
+    seconds = max(0, round(seconds))
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
     return f"{hours}:{minutes:02}:{secs:02}" if hours else f"{minutes:02}:{secs:02}"
-
-
-def report_metrics(processed: float, total: float, elapsed: float):
-    """Returns percentage, processing speed, and estimated remaining wall time."""
-    if total <= 0:
-        return 0.0, 0.0, None
-    processed = max(0.0, min(processed, total))
-    percentage = processed / total * 100
-    speed = processed / elapsed if elapsed > 0 else 0.0
-    remaining = max(0.0, total - processed) / speed if speed > 0 else None
-    return percentage, speed, remaining
 
 
 class VietTranscribe(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("VietTranscribe | Chuyển âm thanh thành văn bản")
-        self.geometry("800x580")
-        self.minsize(680, 520)
-        self.file = tk.StringVar()
+        self.title("VietTranscribe | Phiên âm file dài")
+        self.geometry("820x630")
+        self.minsize(670, 510)
+        self.sources = []
         self.destination = tk.StringVar(value=str(Path.home() / "Desktop" / "KetQuaPhienAm"))
         self.model = tk.StringVar(value="small")
         self.language = tk.StringVar(value="vi")
         self.vad = tk.BooleanVar(value=True)
         self.status = tk.StringVar(value="Sẵn sàng")
-        self.progress_text = tk.StringVar(value="0%")
-        self.speed_text = tk.StringVar(value="Tốc độ: --")
-        self.eta_text = tk.StringVar(value="Còn lại: --:--")
-        self.messages = queue.Queue()
-        self.stop_event = threading.Event()
+        self.metrics = tk.StringVar(value="0% | Tốc độ: -- | Còn lại: --:--")
+        self.events = queue.Queue()
+        self.cancel_event = threading.Event()
         self.busy = False
-        self.setup_ui()
+        self.build_ui()
         self.protocol("WM_DELETE_WINDOW", self.close_window)
         self.after(150, self.poll)
 
-    def setup_ui(self):
-        frame = ttk.Frame(self, padding=22)
-        frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="VietTranscribe", font=("Segoe UI", 23, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="Phiên âm M4A, MP3, WAV, MP4, FLAC thành văn bản TXT").pack(anchor="w", pady=(3, 22))
+    def build_ui(self):
+        root = ttk.Frame(self, padding=20)
+        root.pack(fill="both", expand=True)
+        ttk.Label(root, text="VietTranscribe", font=("Segoe UI", 22, "bold")).pack(anchor="w")
+        ttk.Label(root, text="Xử lý hàng đợi · chia đoạn 10 phút · tự tiếp tục · xuất TXT").pack(anchor="w", pady=(2, 16))
+        ttk.Label(root, text="1. Các file âm thanh cần phiên âm").pack(anchor="w")
+        area = ttk.Frame(root)
+        area.pack(fill="both", expand=True, pady=(5, 8))
+        self.file_list = tk.Listbox(area, selectmode="extended", height=7, font=("Segoe UI", 10))
+        self.file_list.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(area, orient="vertical", command=self.file_list.yview)
+        scroll.pack(side="right", fill="y")
+        self.file_list.config(yscrollcommand=scroll.set)
 
-        ttk.Label(frame, text="1. File âm thanh hoặc video").pack(anchor="w")
-        line = ttk.Frame(frame)
-        line.pack(fill="x", pady=(5, 16))
-        ttk.Entry(line, textvariable=self.file).pack(side="left", fill="x", expand=True)
-        ttk.Button(line, text="Chọn file...", command=self.choose_file).pack(side="right", padx=(7, 0))
+        row = ttk.Frame(root)
+        row.pack(fill="x", pady=(0, 12))
+        self.add_button = ttk.Button(row, text="Thêm file...", command=self.add_files)
+        self.add_button.pack(side="left")
+        self.remove_button = ttk.Button(row, text="Xóa file đã chọn", command=self.remove_files)
+        self.remove_button.pack(side="left", padx=8)
+        self.clear_button = ttk.Button(row, text="Xóa danh sách", command=self.clear_files)
+        self.clear_button.pack(side="left")
 
-        ttk.Label(frame, text="2. Thư mục lưu kết quả").pack(anchor="w")
-        line = ttk.Frame(frame)
-        line.pack(fill="x", pady=(5, 16))
-        ttk.Entry(line, textvariable=self.destination).pack(side="left", fill="x", expand=True)
-        ttk.Button(line, text="Chọn thư mục...", command=self.choose_destination).pack(side="right", padx=(7, 0))
+        ttk.Label(root, text="2. Thư mục xuất kết quả").pack(anchor="w")
+        row = ttk.Frame(root)
+        row.pack(fill="x", pady=(5, 13))
+        ttk.Entry(row, textvariable=self.destination).pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="Chọn thư mục...", command=self.choose_folder).pack(side="right", padx=(7, 0))
 
-        line = ttk.Frame(frame)
-        line.pack(fill="x")
-        ttk.Label(line, text="Mô hình AI").pack(side="left")
-        ttk.Combobox(line, textvariable=self.model, values=MODELS, width=12, state="readonly").pack(side="left", padx=(8, 20))
-        ttk.Label(line, text="Ngôn ngữ").pack(side="left")
-        ttk.Combobox(line, textvariable=self.language, values=("vi", "auto", "en"), width=9, state="readonly").pack(side="left", padx=8)
-        ttk.Checkbutton(frame, text="Lọc khoảng im lặng (VAD)", variable=self.vad).pack(anchor="w", pady=(10, 12))
+        row = ttk.Frame(root)
+        row.pack(fill="x")
+        ttk.Label(row, text="Mô hình AI").pack(side="left")
+        self.model_box = ttk.Combobox(row, textvariable=self.model, values=MODELS, state="readonly", width=12)
+        self.model_box.pack(side="left", padx=(7, 20))
+        ttk.Label(row, text="Ngôn ngữ").pack(side="left")
+        self.lang_box = ttk.Combobox(row, textvariable=self.language, values=("vi", "auto", "en"),
+                                     state="readonly", width=9)
+        self.lang_box.pack(side="left", padx=(7, 20))
+        self.vad_box = ttk.Checkbutton(row, text="Lọc im lặng (VAD)", variable=self.vad)
+        self.vad_box.pack(side="left")
+        ttk.Label(root, text="Chia đoạn: 10 phút · Xử lý trên CPU · Có lưu checkpoint").pack(anchor="w", pady=(8, 12))
 
-        line = ttk.Frame(frame)
-        line.pack(fill="x")
-        self.run_btn = ttk.Button(line, text="BẮT ĐẦU PHIÊN ÂM", command=self.start_job)
-        self.run_btn.pack(side="left")
-        self.stop_btn = ttk.Button(line, text="DỪNG VÀ GIỮ VĂN BẢN", command=self.stop_job, state="disabled")
-        self.stop_btn.pack(side="left", padx=8)
-        ttk.Button(line, text="Mở thư mục kết quả", command=self.open_destination).pack(side="left")
+        row = ttk.Frame(root)
+        row.pack(fill="x")
+        self.start_button = ttk.Button(row, text="BẮT ĐẦU / TIẾP TỤC", command=self.start)
+        self.start_button.pack(side="left")
+        self.stop_button = ttk.Button(row, text="DỪNG SAU ĐOẠN HIỆN TẠI", command=self.stop,
+                                      state="disabled")
+        self.stop_button.pack(side="left", padx=8)
+        ttk.Button(row, text="Mở thư mục kết quả", command=self.open_folder).pack(side="left")
+        self.progress = ttk.Progressbar(root, mode="determinate", maximum=100)
+        self.progress.pack(fill="x", pady=(17, 5))
+        ttk.Label(root, textvariable=self.metrics).pack(anchor="w")
+        ttk.Label(root, textvariable=self.status).pack(anchor="w", pady=(6, 8))
+        ttk.Label(root, text="Nhật ký", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        self.log_box = tk.Text(root, height=7, state="disabled", wrap="word", font=("Consolas", 9))
+        self.log_box.pack(fill="both", expand=True, pady=(5, 7))
+        ttk.Label(root, text="Đoạn hoàn thành được lưu ngay; TXT đầy đủ được ghép tự động.").pack(anchor="w")
 
-        metrics = ttk.Frame(frame)
-        metrics.pack(fill="x", pady=(19, 3))
-        ttk.Label(metrics, textvariable=self.progress_text).pack(side="left")
-        ttk.Label(metrics, textvariable=self.eta_text).pack(side="right", padx=(14, 0))
-        ttk.Label(metrics, textvariable=self.speed_text).pack(side="right")
-        self.progress = ttk.Progressbar(frame, mode="determinate", maximum=100)
-        self.progress.pack(fill="x", pady=(5, 10))
-        ttk.Label(frame, textvariable=self.status).pack(anchor="w")
+    def add_files(self):
+        selected = filedialog.askopenfilenames(title="Chọn nhiều file",
+            filetypes=[("Audio / Video", "*.m4a *.mp3 *.wav *.flac *.mp4 *.ogg *.aac *.wma *.mkv"),
+                       ("Tất cả", "*.*")])
+        existing = {str(x).casefold() for x in self.sources}
+        for item in selected:
+            path = Path(item).resolve()
+            if str(path).casefold() not in existing:
+                self.sources.append(path)
+                self.file_list.insert("end", f"{path.name} — {path.parent}")
+                existing.add(str(path).casefold())
 
-        ttk.Label(frame, text="Nhật ký", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(15, 5))
-        self.log_widget = tk.Text(frame, height=8, wrap="word", state="disabled")
-        self.log_widget.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Tự lưu sau mỗi đoạn vào .partial.txt; TXT chính thức xuất khi hoàn tất.").pack(anchor="w", pady=(8, 0))
+    def remove_files(self):
+        for index in reversed(self.file_list.curselection()):
+            del self.sources[index]
+            self.file_list.delete(index)
 
-    def choose_file(self):
-        selected = filedialog.askopenfilename(
-            title="Chọn file", filetypes=[
-                ("Âm thanh / Video", "*.m4a *.mp3 *.wav *.mp4 *.flac *.ogg *.aac *.wma *.mkv"),
-                ("Tất cả", "*.*")])
-        if selected:
-            self.file.set(selected)
+    def clear_files(self):
+        self.sources.clear()
+        self.file_list.delete(0, "end")
 
-    def choose_destination(self):
-        selected = filedialog.askdirectory(title="Chọn thư mục kết quả")
-        if selected:
-            self.destination.set(selected)
+    def choose_folder(self):
+        path = filedialog.askdirectory()
+        if path:
+            self.destination.set(path)
 
-    def open_destination(self):
+    def open_folder(self):
         try:
-            folder = Path(self.destination.get().strip())
-            folder.mkdir(parents=True, exist_ok=True)
-            os.startfile(str(folder))
-        except OSError as exc:
-            messagebox.showerror("Lỗi thư mục", str(exc))
+            path = Path(self.destination.get().strip())
+            path.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(path))
+        except OSError as error:
+            messagebox.showerror("Không thể mở thư mục", str(error))
 
-    def log(self, message):
-        self.log_widget.configure(state="normal")
-        self.log_widget.insert("end", message + "\n")
-        self.log_widget.see("end")
-        self.log_widget.configure(state="disabled")
+    def log(self, content):
+        self.log_box.config(state="normal")
+        self.log_box.insert("end", content + "\n")
+        self.log_box.see("end")
+        self.log_box.config(state="disabled")
 
-    def start_job(self):
+    def set_busy(self, busy):
+        self.busy = busy
+        for control in (self.add_button, self.remove_button, self.clear_button, self.start_button, self.vad_box):
+            control.config(state="disabled" if busy else "normal")
+        self.model_box.config(state="disabled" if busy else "readonly")
+        self.lang_box.config(state="disabled" if busy else "readonly")
+        self.stop_button.config(state="normal" if busy else "disabled")
+
+    def start(self):
         if self.busy:
             return
-        source = Path(self.file.get().strip())
-        folder = Path(self.destination.get().strip())
-        if not source.is_file():
-            messagebox.showwarning("Thiếu file", "Hãy chọn một file âm thanh hợp lệ.")
+        if not self.sources:
+            messagebox.showwarning("Chưa có file", "Hãy thêm ít nhất một file ghi âm.")
+            return
+        if any(not file.is_file() for file in self.sources):
+            messagebox.showerror("Không tìm thấy file", "Một số file đã bị di chuyển hoặc xóa.")
             return
         if not self.destination.get().strip():
-            messagebox.showwarning("Thiếu thư mục", "Hãy chọn thư mục lưu kết quả.")
+            messagebox.showwarning("Thiếu thư mục", "Hãy chọn thư mục xuất kết quả.")
             return
-        partial = folder / (source.stem + ".partial.txt")
-        if partial.exists() and not messagebox.askyesno(
-            "Văn bản đang lưu", f"Đã có {partial.name}.\nBắt đầu lại sẽ ghi đè bản nháp cũ. Tiếp tục?"
-        ):
-            return
-        self.stop_event.clear()
-        self.busy = True
-        self.run_btn.configure(state="disabled")
-        self.stop_btn.configure(state="normal")
+        self.cancel_event.clear()
+        self.set_busy(True)
         self.progress["value"] = 0
-        self.progress_text.set("0%")
-        self.speed_text.set("Tốc độ: --")
-        self.eta_text.set("Còn lại: --:--")
+        self.metrics.set("0% | Tốc độ: -- | Còn lại: --:--")
         self.status.set("Đang chuẩn bị mô hình AI...")
-        self.log(f"Đang xử lý: {source.name} | {self.model.get()} | {self.language.get()}")
-        threading.Thread(
-            target=self.transcribe,
-            args=(source, folder, self.model.get(), self.language.get(), self.vad.get()),
-            daemon=True
-        ).start()
+        threading.Thread(target=self.worker, daemon=True,
+            args=(list(self.sources), Path(self.destination.get().strip()), self.model.get(),
+                  self.language.get(), self.vad.get())).start()
 
-    def stop_job(self):
-        if not self.busy:
-            return
-        self.stop_event.set()
-        self.stop_btn.configure(state="disabled")
-        self.status.set("Đang dừng sau đoạn nhận dạng hiện tại...")
-        self.log("Đã yêu cầu dừng. File .partial.txt vẫn được giữ lại.")
+    def stop(self):
+        self.cancel_event.set()
+        self.stop_button.config(state="disabled")
+        self.status.set("Đang chờ đoạn hiện tại hoàn thành để dừng...")
 
-    def close_window(self):
-        if self.busy:
-            if not messagebox.askyesno(
-                "Đang phiên âm",
-                "Đang xử lý. Đóng cửa sổ có thể dừng ngay lập tức.\n"
-                "Phần đã ghi trong .partial.txt vẫn còn. Bạn muốn đóng?"
-            ):
-                return
-            self.stop_event.set()
-        self.destroy()
-
-    def transcribe(self, source, folder, model, language, use_vad):
-        partial = folder / (source.stem + ".partial.txt")
-        final = folder / (source.stem + ".txt")
-        processed_segments = 0
+    def worker(self, files, destination, model, language, vad):
         try:
             from faster_whisper import WhisperModel
-            folder.mkdir(parents=True, exist_ok=True)
-            self.messages.put(("log", "Đang tải mô hình AI (lần đầu cần Internet)..."))
+            self.events.put({"type": "log", "message": "Đang tải mô hình AI..."})
             engine = WhisperModel(model, device="cpu", compute_type="int8")
-            if self.stop_event.is_set():
-                self.messages.put(("stopped", f"Đã dừng trước khi nhận dạng; chưa ghi văn bản."))
-                return
-            self.messages.put(("log", "Đã tải mô hình. Đang phân tích âm thanh..."))
-            segments, info = engine.transcribe(
-                str(source), language=None if language == "auto" else language,
-                beam_size=5, vad_filter=use_vad
-            )
-            duration = float(info.duration)
-            start = time.monotonic()
-            # utf-8-sig writes the BOM once; each flush keeps the partial file readable.
-            with partial.open("w", encoding="utf-8-sig") as writer:
-                for segment in segments:
-                    if self.stop_event.is_set():
-                        break
-                    text = segment.text.strip()
-                    if text:
-                        writer.write(text + "\n")
-                        writer.flush()
-                        processed_segments += 1
-                    elapsed = max(time.monotonic() - start, .001)
-                    percentage, speed, eta = report_metrics(segment.end, duration, elapsed)
-                    self.messages.put(("progress", {
-                        "percent": percentage, "processed": float(segment.end),
-                        "duration": duration, "speed": speed, "eta": eta
-                    }))
-                writer.flush()
-            if self.stop_event.is_set():
-                self.messages.put(("stopped", f"Đã dừng. Lưu được {processed_segments} đoạn tại: {partial}"))
-                return
-            if processed_segments == 0:
-                self.messages.put(("error", "Không phát hiện lời nói. Thử tắt VAD hoặc chọn file khác."))
-                return
-            os.replace(partial, final)
-            self.messages.put(("done", f"Hoàn thành {processed_segments} đoạn. File TXT: {final}"))
-        except Exception as exc:
-            self.messages.put(("error", f"{type(exc).__name__}: {exc}\n"
-                                        f"Nếu đã ghi nhận dạng, bản nháp nằm tại: {partial}"))
+            for i, file in enumerate(files, 1):
+                if self.cancel_event.is_set():
+                    break
+                self.events.put({"type": "status", "message": f"File {i}/{len(files)}: {file.name}"})
+                self.events.put({"type": "progress", "percent": 0, "speed": 0, "eta": None})
+                self.events.put({"type": "log", "message": f"[{i}/{len(files)}] {file.name}"})
+                result = transcribe_file(file, destination, engine, model, language, vad,
+                                         self.cancel_event, self.events.put)
+                if result is not None:
+                    self.events.put({"type": "log", "message": "Đã lưu: " + str(result)})
+            self.events.put({"type": "stopped" if self.cancel_event.is_set() else "done"})
+        except Exception as error:
+            self.events.put({"type": "error", "message": f"{type(error).__name__}: {error}"})
 
     def poll(self):
         try:
             while True:
-                action, message = self.messages.get_nowait()
-                if action == "log":
-                    self.log(message)
-                elif action == "progress":
-                    self.progress["value"] = message["percent"]
-                    self.progress_text.set(f'{message["percent"]:.1f}%')
-                    self.speed_text.set(f'Tốc độ: {message["speed"]:.2f}x')
-                    self.eta_text.set(
-                        "Còn lại: " + (human_time(message["eta"]) if message["eta"] is not None else "--:--")
-                    )
-                    self.status.set(
-                        f'Đã xử lý tới {timestamp(message["processed"])} / {timestamp(message["duration"])}'
-                    )
+                event = self.events.get_nowait()
+                kind = event["type"]
+                if kind == "log":
+                    self.log(event["message"])
+                elif kind == "status":
+                    self.status.set(event["message"])
+                elif kind == "progress":
+                    self.progress["value"] = event["percent"]
+                    self.metrics.set(f"{event['percent']:.1f}% | Tốc độ: {event['speed']:.2f}x | "
+                                     f"Còn lại (ước tính): {clock(event['eta'])}")
                 else:
-                    self.busy = False
-                    self.run_btn.configure(state="normal")
-                    self.stop_btn.configure(state="disabled")
-                    if action == "done":
-                        self.progress["value"] = 100
-                        self.progress_text.set("100%")
-                    self.status.set("Hoàn thành" if action == "done" else
-                                    "Đã dừng" if action == "stopped" else "Có lỗi")
-                    self.log(message)
-                    if action == "done":
-                        messagebox.showinfo("Thành công", message)
-                    elif action == "stopped":
-                        messagebox.showinfo("Đã dừng", message)
+                    self.set_busy(False)
+                    self.status.set("Hoàn thành" if kind == "done" else
+                                    "Đã dừng, giữ dữ liệu" if kind == "stopped" else "Có lỗi")
+                    if kind == "error":
+                        self.log(event["message"])
+                        messagebox.showerror("Lỗi", event["message"])
+                    elif kind == "done":
+                        messagebox.showinfo("Hoàn thành", "Đã xử lý hàng đợi. Mở thư mục kết quả để lấy TXT.")
                     else:
-                        messagebox.showerror("Lỗi phiên âm", message)
+                        self.log("Có thể nhấn BẮT ĐẦU / TIẾP TỤC để xử lý các đoạn còn lại.")
         except queue.Empty:
             pass
         self.after(150, self.poll)
+
+    def close_window(self):
+        if self.busy and not messagebox.askyesno(
+            "Đang xử lý", "Đóng ngay sẽ ngắt đoạn hiện tại, các đoạn đã lưu vẫn được giữ. Tiếp tục?"
+        ):
+            return
+        self.cancel_event.set()
+        self.destroy()
 
 
 if __name__ == "__main__":
