@@ -53,10 +53,13 @@ class VietTranscribe(ctk.CTk):
     def __init__(self):
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
+        # Normalize CustomTkinter sizes on Windows with 125%-200% DPI scaling.
+        ctk.set_widget_scaling(1.0)
+        ctk.set_window_scaling(1.0)
         super().__init__()
         self.title("VietTranscribe | Chuyển âm thanh thành TXT")
-        self.geometry("890x760")
-        self.minsize(760, 660)
+        self.geometry("920x710")
+        self.minsize(720, 550)
         self.configure(fg_color=BG)
         self.sources = []
         self.row_widgets = {}
@@ -92,8 +95,11 @@ class VietTranscribe(ctk.CTk):
                             border_width=1, border_color=BORDER)
 
     def build_ui(self):
-        self.outer = ctk.CTkFrame(self, fg_color="transparent")
-        self.outer.pack(fill="both", expand=True, padx=24, pady=18)
+        # The main view scrolls when the taskbar or screen scaling reduces usable height.
+        # Keep the main controls reachable even on 1366x768 displays.
+        self.outer = ctk.CTkScrollableFrame(self, fg_color="transparent",
+                                             corner_radius=0)
+        self.outer.pack(fill="both", expand=True, padx=12, pady=8)
 
         header = ctk.CTkFrame(self.outer, fg_color="transparent")
         header.pack(fill="x", pady=(0, 15))
@@ -116,12 +122,12 @@ class VietTranscribe(ctk.CTk):
                                          width=112, height=34, corner_radius=9)
         self.add_button.pack(side="right")
         self.file_area = ctk.CTkScrollableFrame(self.files_card, fg_color="#F9FBFE",
-                                                corner_radius=9, height=122)
+                                                corner_radius=9, height=72)
         self.file_area.pack(fill="x", padx=16, pady=(0, 8))
         self.empty_label = self.text(self.file_area,
                                      "Kéo thả file vào đây hoặc nhấn “+ Thêm file”",
                                      12, MUTED)
-        self.empty_label.pack(pady=34)
+        self.empty_label.pack(pady=16)
         row = ctk.CTkFrame(self.files_card, fg_color="transparent")
         row.pack(fill="x", padx=17, pady=(0, 13))
         self.remove_button = ctk.CTkButton(row, text="Xóa file đã chọn", width=128,
@@ -226,7 +232,7 @@ class VietTranscribe(ctk.CTk):
     def toggle_logs(self):
         self.logs_visible = not self.logs_visible
         if self.logs_visible:
-            self.log_panel.pack(fill="both", expand=True, pady=(8, 0))
+            self.log_panel.pack(fill="x", pady=(8, 0))
         else:
             self.log_panel.pack_forget()
         self.logs_button.configure(text="Ẩn chi tiết ▴" if self.logs_visible else "Chi tiết xử lý ▾")
@@ -245,10 +251,12 @@ class VietTranscribe(ctk.CTk):
             widget.destroy()
         self.row_widgets = {}
         self.file_count.configure(text=f"{len(self.sources)} file")
+        # Never reserve hundreds of empty pixels for one short row.
+        self.file_area.configure(height=max(72, min(len(self.sources), 4) * 45 + 26))
         if not self.sources:
             self.empty_label = self.text(self.file_area,
                 "Kéo thả file vào đây hoặc nhấn “+ Thêm file”", 12, MUTED)
-            self.empty_label.pack(pady=34)
+            self.empty_label.pack(pady=16)
             self.selected = None
             return
         if self.selected not in self.sources:
