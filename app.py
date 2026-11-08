@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -80,6 +81,11 @@ class VietTranscribe(ctk.CTk):
         self.cancel_event = threading.Event()
         self.busy = False
         self.logs_visible = False
+        self.started_at = None
+        self.last_progress_at = None
+        self.current_stage = ""
+        self.current_speed = 0.0
+        self.current_eta = None
         self.build_ui()
         self.enable_drag_drop()
         self.restore_queue()
@@ -464,8 +470,13 @@ class VietTranscribe(ctk.CTk):
         self.refresh_files()
         self.progress.set(0)
         self.percent.set("0%")
-        self.metrics.set("Tốc độ: --    ·    Còn lại: --:--")
-        self.status.set("Đang chuẩn bị mô hình AI...")
+        self.started_at = time.monotonic()
+        self.last_progress_at = self.started_at
+        self.current_speed = 0.0
+        self.current_eta = None
+        self.current_stage = "Đang chuẩn bị mô hình AI..."
+        self.metrics.set("Tốc độ: -- · Đã chạy: 00:00 · Còn lại: --:--")
+        self.status.set(self.current_stage)
         args = (list(self.sources), Path(self.destination.get()),
                 self.model.get(), self.language.get(), self.vad.get(), self.speed_mode.get())
         threading.Thread(target=self.worker, args=args, daemon=True).start()
@@ -521,14 +532,19 @@ class VietTranscribe(ctk.CTk):
                     path = event["path"]
                     self.current_file = path
                     self.file_states[path] = event["state"]
-                    self.status.set(f'File {event["number"]}/{event["total"]}: {path.name} · {event["state"]}')
+                    self.current_stage = f'File {event["number"]}/{event["total"]}: {path.name} · {event["state"]}'
+                    self.status.set(self.current_stage)
                     self.refresh_files()
+                elif kind == "stage":
+                    self.current_stage = event["message"]
+                    self.status.set(self.current_stage)
                 elif kind == "progress":
                     val = max(0, min(100, float(event["percent"])))
                     self.progress.set(val / 100)
-                    self.percent.set(f"{val:.0f}%")
-                    self.metrics.set(f'Tốc độ: {event["speed"]:.2f}x    ·    '
-                                     f'Còn lại (ước tính): {clock(event["eta"])}')
+                    self.percent.set(f"{val:.1f}%")
+                    self.current_speed = float(event["speed"])
+                    self.current_eta = event["eta"]
+                    self.last_progress_at = time.monotonic()
                 else:
                     self.set_busy(False)
                     self.refresh_open_button()
@@ -547,6 +563,19 @@ class VietTranscribe(ctk.CTk):
                         messagebox.showerror("Lỗi phiên âm", event["message"])
         except queue.Empty:
             pass
+        if self.busy and self.started_at is not None:
+            now = time.monotonic()
+            elapsed = clock(now - self.started_at)
+            eta = clock(self.current_eta)
+            self.metrics.set(
+                f"Tốc độ: {self.current_speed:.2f}x · Đã chạy: {elapsed} · "
+                f"Còn lại (ước tính): {eta}"
+            )
+            # The counter continues even if Whisper hasn't returned the next speech
+            # segment. Percentage only advances after actual model progress.
+            if self.last_progress_at and now - self.last_progress_at > 25:
+                self.status.set(self.current_stage +
+                    " · Đang tính toán, chưa có mốc âm thanh mới")
         self.after(150, self.poll)
 
     def close_window(self):
