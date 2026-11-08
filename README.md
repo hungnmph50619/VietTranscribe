@@ -35,6 +35,22 @@ powershell -ExecutionPolicy Bypass -File .\run.ps1
 
 Từ các lần cập nhật giao diện sau, nếu `requirements.txt` không đổi thì không cần chạy lại `install.ps1`.
 
+## Tiến độ theo lời nói (cải tiến mới)
+
+- Thanh phần trăm cập nhật sau mỗi đoạn lời nói mà Whisper nhận dạng được, **không phải đợi đủ 10 phút**.
+- Hiển thị **thời gian đã chạy** liên tục, cùng tốc độ và thời gian còn lại *ước tính*.
+- Nếu Whisper chưa trả mốc lời nói mới sau 25 giây, giao diện ghi rõ **“Đang tính toán, chưa có mốc âm thanh mới”**. Điều này không khẳng định chương trình đã treo.
+- Trong file ít lời nói, đang giải mã hoặc khi mô hình còn tính toán, phần trăm vẫn có thể tạm đứng; phần trăm không được tăng giả theo đồng hồ.
+- Chức năng lưu từng đoạn 10 phút và tiếp tục từ checkpoint **không thay đổi**. Không xóa file TXT hoặc thư mục `parts` đã lưu.
+
+Sau khi hoàn tất phiên âm đang chạy và đóng chương trình, cập nhật:
+
+```powershell
+cd "$env:USERPROFILE\Downloads\VietTranscribe"
+git pull origin main
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
 ## Tính năng
 
 - Chọn **nhiều file**; chạy tuần tự trong hàng đợi, dùng chung một mô hình AI. Danh sách file được giữ lại trên máy khi đóng và mở lại phần mềm; file lỗi không chặn toàn bộ hàng đợi.
