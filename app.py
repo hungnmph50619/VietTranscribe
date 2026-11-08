@@ -216,6 +216,7 @@ class VietTranscribe(tk.Tk):
             from faster_whisper import WhisperModel
             self.events.put({"type": "log", "message": "Đang tải mô hình AI..."})
             engine = WhisperModel(model, device="cpu", compute_type="int8")
+            failures = 0
             for i, file in enumerate(files, 1):
                 if self.cancel_event.is_set():
                     break
@@ -230,8 +231,10 @@ class VietTranscribe(tk.Tk):
                 except Exception as exc:
                     self.events.put({"type": "log", "message": f"LỖI {file.name}: {exc}"})
                     # A bad file must not stop the rest of the queue.
+                    failures += 1
                     continue
-            self.events.put({"type": "stopped" if self.cancel_event.is_set() else "done"})
+            event = "stopped" if self.cancel_event.is_set() else ("done_with_errors" if failures else "done")
+            self.events.put({"type": event, "failures": failures})
         except Exception as error:
             self.events.put({"type": "error", "message": f"{type(error).__name__}: {error}"})
 
@@ -251,12 +254,15 @@ class VietTranscribe(tk.Tk):
                 else:
                     self.set_busy(False)
                     self.status.set("Hoàn thành" if kind == "done" else
+                                    "Một số file bị lỗi" if kind == "done_with_errors" else
                                     "Đã dừng, giữ dữ liệu" if kind == "stopped" else "Có lỗi")
                     if kind == "error":
                         self.log(event["message"])
                         messagebox.showerror("Lỗi", event["message"])
                     elif kind == "done":
                         messagebox.showinfo("Hoàn thành", "Đã xử lý hàng đợi. Mở thư mục kết quả để lấy TXT.")
+                    elif kind == "done_with_errors":
+                        messagebox.showwarning("Có file lỗi", f"{event['failures']} file bị lỗi. Xem nhật ký; các file khác vẫn được xử lý.")
                     else:
                         self.log("Có thể nhấn BẮT ĐẦU / TIẾP TỤC để xử lý các đoạn còn lại.")
         except queue.Empty:
