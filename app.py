@@ -78,6 +78,7 @@ class VietTranscribe(ctk.CTk):
         self.busy = False
         self.logs_visible = False
         self.build_ui()
+        self.enable_drag_drop()
         self.restore_queue()
         self.protocol("WM_DELETE_WINDOW", self.close_window)
         self.after(150, self.poll)
@@ -118,7 +119,7 @@ class VietTranscribe(ctk.CTk):
                                                 corner_radius=9, height=122)
         self.file_area.pack(fill="x", padx=16, pady=(0, 8))
         self.empty_label = self.text(self.file_area,
-                                     "Chưa có file. Nhấn “+ Thêm file” để chọn M4A, MP3, WAV...",
+                                     "Kéo thả file vào đây hoặc nhấn “+ Thêm file”",
                                      12, MUTED)
         self.empty_label.pack(pady=34)
         row = ctk.CTkFrame(self.files_card, fg_color="transparent")
@@ -246,7 +247,7 @@ class VietTranscribe(ctk.CTk):
         self.file_count.configure(text=f"{len(self.sources)} file")
         if not self.sources:
             self.empty_label = self.text(self.file_area,
-                "Chưa có file. Nhấn “+ Thêm file” để bắt đầu.", 12, MUTED)
+                "Kéo thả file vào đây hoặc nhấn “+ Thêm file”", 12, MUTED)
             self.empty_label.pack(pady=34)
             self.selected = None
             return
@@ -359,19 +360,42 @@ class VietTranscribe(ctk.CTk):
         self.refresh_files()
         self.update_folder_label()
 
+    def enable_drag_drop(self):
+        """Enable native Windows file drops if tkdnd is available."""
+        try:
+            from tkinterdnd2 import DND_FILES, TkinterDnD
+            TkinterDnD.DnDWrapper._require(self)
+            TkinterDnD.DnDWrapper.drop_target_register(self, DND_FILES)
+            TkinterDnD.DnDWrapper.dnd_bind(self, "<<Drop>>", self.on_drop)
+            self.log("Kéo thả file vào cửa sổ đã sẵn sàng.")
+        except Exception as exc:
+            self.log("Kéo thả không khả dụng; vẫn có thể chọn file: " + str(exc))
+
+    def on_drop(self, event):
+        try:
+            paths = self.tk.splitlist(event.data)
+            self.append_files(paths)
+        except (tk.TclError, OSError, ValueError) as exc:
+            self.log("Không đọc được file kéo thả: " + str(exc))
+
+    def append_files(self, paths):
+        allowed = {".m4a", ".mp3", ".wav", ".flac", ".mp4",
+                   ".ogg", ".aac", ".wma", ".mkv"}
+        existing = {str(p).casefold() for p in self.sources}
+        for value in paths:
+            path = Path(value).resolve()
+            if path.is_file() and path.suffix.lower() in allowed and str(path).casefold() not in existing:
+                self.sources.append(path)
+                existing.add(str(path).casefold())
+        self.refresh_files()
+        self.save_queue()
+
     def add_files(self):
         selected = filedialog.askopenfilenames(
             title="Chọn file âm thanh",
             filetypes=[("Audio / Video", "*.m4a *.mp3 *.wav *.flac *.mp4 *.ogg *.aac *.wma *.mkv"),
                        ("Tất cả", "*.*")])
-        existing = {str(x).casefold() for x in self.sources}
-        for item in selected:
-            path = Path(item).resolve()
-            if str(path).casefold() not in existing:
-                self.sources.append(path)
-                existing.add(str(path).casefold())
-        self.refresh_files()
-        self.save_queue()
+        self.append_files(selected)
 
     def remove_files(self):
         if self.selected is not None and self.selected in self.sources:
