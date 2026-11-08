@@ -2,6 +2,18 @@
 
 Ứng dụng chạy trên CPU với **faster-whisper**, không cần API key hoặc phí phiên âm. Hỗ trợ M4A, MP3, WAV, MP4, FLAC và các định dạng mà PyAV đọc được.
 
+## Bản sửa giao diện trên Windows DPI cao
+
+Nếu ở phiên bản cũ phần danh sách ghi âm quá cao và che mất nút **Bắt đầu**, hãy cập nhật và mở lại chương trình. Giao diện mới giới hạn chiều cao danh sách theo số file, chuẩn hóa tỷ lệ hiển thị và cuộn phần nội dung khi cửa sổ không đủ cao.
+
+```powershell
+cd "$env:USERPROFILE\Downloads\VietTranscribe"
+git pull origin main
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+Việc đổi giao diện **không xóa** các thư mục checkpoint hay file TXT đã xuất. Nếu đang chạy phiên âm, nên hoàn thành hoặc dừng sau đoạn hiện tại trước khi cập nhật.
+
 ## Giao diện mới (CustomTkinter)
 
 - Bố cục sáng, gọn, kiểu Windows 11: danh sách file, thiết lập mô hình, tiến độ và nút hành động.
