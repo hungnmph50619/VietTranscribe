@@ -1,46 +1,59 @@
-# VietTranscribe — Phiên âm tiếng Việt trên Windows
+# VietTranscribe — Phiên âm tiếng Việt thành TXT (Windows)
 
-Ứng dụng Python/Tkinter dùng faster-whisper để chuyển M4A, MP3, WAV, MP4, FLAC thành file TXT. Chạy CPU, không cần API trả phí.
+Ứng dụng chạy trên CPU với **faster-whisper**, không cần API key hoặc phí phiên âm. Hỗ trợ M4A, MP3, WAV, MP4, FLAC và các định dạng mà PyAV đọc được.
 
-## Cài đặt lần đầu
+## Tính năng
 
-Mở PowerShell tại thư mục dự án, chạy:
+- Chọn **nhiều file**; chạy tuần tự trong hàng đợi, dùng chung một mô hình AI.
+- Giải mã âm thanh theo luồng, chia mỗi file thành các đoạn **10 phút** với khoảng chồng lấn 2 giây ở đầu đoạn sau để giảm rủi ro mất lời tại điểm cắt.
+- Sau **mỗi đoạn hoàn tất**, ghi `parts/00000.txt`, `parts/00001.txt`, ... và `manifest.json` bằng thao tác thay thế file an toàn. Tạo `van_ban_dang_xu_ly.partial.txt` liên tục.
+- Nếu dừng, mất điện hoặc máy thoát bất ngờ, bấm **BẮT ĐẦU / TIẾP TỤC** để chương trình **bỏ qua các đoạn đã lưu hợp lệ** và phiên âm phần còn lại. Đoạn đang xử lý dở có thể phải làm lại.
+- Khi đã hoàn thành toàn bộ file, xuất **`van_ban_day_du.txt`**.
+- Hiển thị tiến độ theo số đoạn, tốc độ và thời gian còn lại *ước tính*. Trong lúc chạy một đoạn 10 phút, % có thể đứng yên đến khi đoạn hoàn thành.
+- Mỗi file và cấu hình tạo một thư mục kết quả riêng, tránh ghi đè khi trùng tên.
 
-    powershell -ExecutionPolicy Bypass -File .\install.ps1
-    powershell -ExecutionPolicy Bypass -File .\run.ps1
+## Cập nhật Windows từ repository
 
-Nếu vừa cài Python, phải đóng và mở lại PowerShell trước khi cài đặt.
+**Để bản ghi đang chạy hoàn thành và đóng VietTranscribe trước khi cập nhật.** Mở PowerShell:
 
-## Cập nhật bản mới nhất
+```powershell
+cd "$env:USERPROFILE\Downloads\VietTranscribe"
+git pull origin main
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
 
-**Đợi phiên âm đang chạy hoàn thành, sau đó đóng phần mềm** trước khi cập nhật:
+Nếu chưa cài đặt lần nào, chạy:
 
-    cd "$env:USERPROFILE\Downloads\VietTranscribe"
-    git pull origin main
-    powershell -ExecutionPolicy Bypass -File .\run.ps1
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
 
-Nếu từng sửa code cục bộ, hãy sao lưu các thay đổi trước khi cập nhật.
+Máy mới cần Python 3.11, có thể được script cài qua winget. Nếu vừa cài Python, hãy mở lại PowerShell trước khi chạy lại `install.ps1`. Không cần tải GitHub ZIP nếu đã clone repository trước đó.
 
-## Chức năng
+## Sử dụng
 
-1. Chọn file và thư mục kết quả.
-2. Chọn mô hình AI (mặc định small), ngôn ngữ (mặc định vi).
-3. Nhấn BẮT ĐẦU PHIÊN ÂM.
-4. Xem phần trăm tiến độ dựa trên thời lượng file, tốc độ xử lý so với thời gian thực (ví dụ 0.5x), và ước tính thời gian còn lại.
-5. Sau **mỗi đoạn nhận dạng**, ứng dụng ghi nội dung vào file <tên file>.partial.txt. File này vẫn tồn tại khi dừng giữa chừng hoặc bị lỗi.
-6. Khi nhận dạng xong, bản nháp được chuyển thành <tên file>.txt, đây là kết quả chính thức.
-7. Nút DỪNG VÀ GIỮ VĂN BẢN yêu cầu dừng ở ranh giới giữa các đoạn; thao tác có thể không diễn ra ngay lập tức.
+1. Nhấn **Thêm file...** và chọn một hoặc nhiều file ghi âm.
+2. Chọn **Thư mục xuất kết quả**.
+3. Mô hình `small`, ngôn ngữ `vi`, VAD bật là lựa chọn mặc định.
+4. Nhấn **BẮT ĐẦU / TIẾP TỤC**.
+5. Có thể nhấn **DỪNG SAU ĐOẠN HIỆN TẠI**; dữ liệu các đoạn hoàn thành vẫn được giữ.
+6. Sau khi hoàn thành, mở thư mục `<tên file>__<mã>/van_ban_day_du.txt` để lấy kết quả. Nếu chưa xong, dùng `van_ban_dang_xu_ly.partial.txt` để đọc phần đã có.
 
-**Lưu ý:** File .partial.txt là văn bản chưa hoàn chỉnh, không phải checkpoint để tiếp tục phiên âm từ vị trí trước. Khi chạy lại cùng file, sẽ có cảnh báo trước khi ghi đè bản nháp cũ. Ước tính thời gian còn lại chỉ mang tính tham khảo và có thể thay đổi.
+**Lưu ý:** Tính năng tiếp tục dựa vào đường dẫn file, kích thước, thời điểm sửa đổi và cấu hình nhận dạng. Nếu bạn thay đổi file gốc hoặc mô hình, chương trình tạo công việc mới để bảo vệ kết quả cũ. Không xóa thư mục `parts` hoặc `manifest.json` nếu muốn tiếp tục. Phần mềm phải giải mã lại âm thanh khi tiếp tục, nhưng **không phải chạy lại suy luận AI cho các đoạn hoàn thành**.
 
-Lần đầu cần Internet để tải mô hình; các lần sau có thể chạy offline. Độ chính xác phụ thuộc chất lượng âm thanh và mô hình được chọn.
+## Giới hạn và bảo mật
 
-## Bảo mật
+- Văn bản có thể sai tại ranh giới hai đoạn, ở đoạn nhiễu hoặc lời nói chồng nhau. Phần chồng lấn 2 giây giúp giảm rủi ro nhưng không bảo đảm loại bỏ hoàn toàn lặp hoặc thiếu từ.
+- CPU có thể chạy chậm với mô hình lớn. Chọn `base` nếu cần nhẹ hơn, `small` nếu ưu tiên chất lượng.
+- Không đưa file ghi âm riêng tư vào repository Public.
+- Lần đầu cần Internet để tải mô hình, sau đó nhận dạng chạy tại máy.
 
-Không commit file ghi âm cá nhân vào GitHub. Repository hiện đang ở chế độ Public.
+## Kiểm thử
 
-## Kiểm tra cú pháp
+```powershell
+py -3.11 -m py_compile app.py transcription.py
+py -3.11 -m unittest discover -s tests -v
+```
 
-    .\.venv\Scripts\python.exe -m py_compile .\app.py
-
-Mã nguồn chưa được kiểm thử đầy đủ trên mọi máy Windows.
+Kiểm thử tự động mô phỏng dừng, khôi phục, kiểm tra checksum, trùng tên file và xuất Unicode. Chưa khẳng định đã kiểm thử phiên âm thực tế mọi định dạng trên Windows.
